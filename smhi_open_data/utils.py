@@ -1,3 +1,4 @@
+import pandas as pd
 from datetime import datetime
 from math import cos, asin, sqrt, pi
 from typing import Union
@@ -41,3 +42,12 @@ def distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     p = pi / 180.0
     a = 0.5 - cos((lat2 - lat1) * p) / 2.0 + cos(lat1 * p) * cos(lat2 * p) * (1.0 - cos((lon2 - lon1) * p)) / 2
     return CONST_EARTH_DIAMETER * asin(sqrt(a))  # 2*R*asin...
+
+def json_to_dataframe(json_data: dict) -> pd.DataFrame:
+    # create a data frame from the JSON data
+    df = pd.DataFrame(json_data)
+    # convert timestamps to datetime
+    df["date"] = pd.to_datetime(df.date, unit="ms", utc=True)
+    # convert value to float64
+    df["value"] = df.value.astype(float)
+    return df

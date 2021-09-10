@@ -4,14 +4,16 @@ from typing import List, Dict, Any, Union
 import requests
 from tenacity import retry, stop_after_attempt, wait_random
 
+import pandas as pd
+
 from smhi_open_data.enums import Parameter
-from smhi_open_data.utils import try_parse_float, distance
+from smhi_open_data.utils import try_parse_float, distance, json_to_dataframe
 
 
 class SMHIOpenDataClient:
-    _base_url = 'https://opendata-download-metobs.smhi.se'
+    _base_url = "https://opendata-download-metobs.smhi.se"
 
-    def __init__(self, version: str = '1.0'):
+    def __init__(self, version: str = "1.0"):
         self.version = version
 
     @property
@@ -28,20 +30,29 @@ class SMHIOpenDataClient:
         https = requests.adapters.HTTPAdapter(max_retries=30)
 
         # Replace the session's original adapters
-        s.mount('http://', http)
-        s.mount('https://', https)
+        s.mount("http://", http)
+        s.mount("https://", https)
 
         # Start using the session
         res = s.get(url=f"{self.base_url}/{service}", stream=True)
 
-        if res.encoding is None:
-            res.encoding = 'utf-8'
+        # if res.encoding is None:
+        #     res.encoding = "utf-8"
 
-        data = []
-        for line in res.iter_lines(decode_unicode=True):
-            if line:
-                data.append(line)
-        return json.loads(''.join(data))
+        # data = []
+        # for line in res.iter_lines(decode_unicode=True):
+        #     if line:
+        #         data.append(line)
+        # return json.loads("".join(data))
+        return res.json()
+
+    @retry(stop=stop_after_attempt(10), wait=wait_random(min=0.01, max=0.10))
+    def _query_csv(self, service: str):
+        # download the csv data
+        df = pd.read_csv(
+            filepath_or_buffer=f"{self.base_url}/{service}", skiprows=9, delimiter=";"
+        )
+        return df
 
     def get_parameter_stations(self, parameter: Parameter) -> List[Dict[str, Any]]:
         """Get parameter stations.
@@ -49,17 +60,16 @@ class SMHIOpenDataClient:
         Returns:
             List[Dict[str, Any]]: List of SMHI stations where parameter is available.
         """
-        res = self._query(
-            service=f"parameter/{parameter.value}.json")
-        return res['station']
+        res = self._query(service=f"parameter/{parameter.value}.json")
+        return res["station"]
 
-    def get_station_parameters(self,
-                               station_id: int,
-                               parameter_set: List[Parameter] = list(Parameter)) -> List[Parameter]:
+    def get_station_parameters(
+        self, station_id: int, parameter_set: List[Parameter] = list(Parameter)
+    ) -> List[Parameter]:
         parameters = set([])
         for parameter in parameter_set:
             for station in self.get_parameter_stations(parameter=parameter):
-                if station['id'] == station_id:
+                if station["id"] == station_id:
                     parameters.add(parameter)
         return list(parameters)
 
@@ -75,8 +85,8 @@ class SMHIOpenDataClient:
         for param in Parameter:
             stations = self.get_parameter_stations(parameter=param)
             for station in stations:
-                if station['id'] not in station_ids:
-                    station_ids.add(station['id'])
+                if station["id"] not in station_ids:
+                    station_ids.add(station["id"])
                     stations.append(station)
         return stations
 
@@ -90,27 +100,25 @@ class SMHIOpenDataClient:
             List[Dict[str, Any]]: List of raw SMHI observations from available stations.
         """
         # Check if parameter has station set
-        res = self._query(
-            service=f"parameter/{parameter.value}/station-set.json"
-        )
-        station_set = res['stationSet']
+        res = self._query(service=f"parameter/{parameter.value}/station-set.json")
+        station_set = res["stationSet"]
 
         if station_set is None:
             # TODO: Get values from stations instead
             raise NotImplementedError(f"Not implemented for parameter: {parameter}")
 
         # Check if station set has any periods
-        res = self._query(
-            service=f"parameter/{parameter.value}/station-set/all.json"
-        )
-        periods = res['period']
+        res = self._query(service=f"parameter/{parameter.value}/station-set/all.json")
+        periods = res["period"]
         if periods is None or len(periods) == 0:
             raise NotImplementedError(f"Not implemented for parameter: {parameter}")
 
         # Get period key
-        period_key = periods[0]['key']
-        if period_key != 'latest-hour':
-            raise NotImplementedError(f"Not implemented for parameter: {parameter} and period: {period_key}")
+        period_key = periods[0]["key"]
+        if period_key != "latest-hour":
+            raise NotImplementedError(
+                f"Not implemented for parameter: {parameter} and period: {period_key}"
+            )
 
         # Get period data
         res = self._query(
@@ -118,18 +126,20 @@ class SMHIOpenDataClient:
         )
 
         values = []
-        for x in res['station']:
-            value_list = x['value']
+        for x in res["station"]:
+            value_list = x["value"]
             if value_list is None:
                 continue
 
             for value in value_list:
-                values.append({
-                    'parameter_id': parameter.value,
-                    'timestamp': value['date'],
-                    'value': try_parse_float(value['value']),
-                    'station': x['key'],
-                })
+                values.append(
+                    {
+                        "parameter_id": parameter.value,
+                        "timestamp": value["date"],
+                        "value": try_parse_float(value["value"]),
+                        "station": x["key"],
+                    }
+                )
 
         return values
 
@@ -142,11 +152,7 @@ class SMHIOpenDataClient:
                 parameter.
         """
         return [
-            {
-                'name': parameter.name,
-                'value': parameter.value,
-                'enum': parameter,
-            }
+            {"name": parameter.name, "value": parameter.value, "enum": parameter}
             for parameter in Parameter
         ]
 
@@ -162,7 +168,9 @@ class SMHIOpenDataClient:
         """
         return Parameter(parameter_id)
 
-    def get_closest_station(self, latitude: float, longitude: float) -> List[Dict[str, Any]]:
+    def get_closest_station(
+        self, latitude: float, longitude: float
+    ) -> List[Dict[str, Any]]:
         """Get closest weather station from given coordinates.
 
         Args:
@@ -175,18 +183,47 @@ class SMHIOpenDataClient:
         stations = self.get_stations()
         closest_station, closests_dist = None, 1e10
         for station in stations:
-            lat, lon = station.get('latitude'), station.get('longitude')
+            lat, lon = station.get("latitude"), station.get("longitude")
             if lat is None or lon is None:
                 continue
 
             # Calculate distance
-            dist = distance(
-                lat1=latitude,
-                lon1=longitude,
-                lat2=lat,
-                lon2=lon,
-            )
+            dist = distance(lat1=latitude, lon1=longitude, lat2=lat, lon2=lon)
 
             if dist < closests_dist:
                 closests_dist, closest_station = dist, station
         return closest_station
+
+    def get_corrected_data(self, parameter: Parameter, station_id: int) -> pd.DataFrame:
+        """Get archived corrected data for specified parameter and station.
+        """
+
+        df = self._query_csv(
+            service=f"parameter/{parameter.value}/station/{station_id}/period/corrected-archive/data.csv"
+        )
+        df["date"] = pd.to_datetime(df.Datum, utc=True) + pd.to_timedelta(
+            df["Tid (UTC)"]
+        )
+        df = df.iloc[:, [-1, 2, 3]]
+        # rename the columns
+        df.columns = ["date", "value", "quality"]
+
+        # convert value to float64
+        df["value"] = df.value.astype(float)
+        return df
+
+    def get_latest_months(self, parameter: Parameter, station_id: int) -> pd.DataFrame:
+        """Get data from latest months for specified parameter and station.
+        """
+        json_data = self._query_csv(
+            service=f"parameter/{parameter.value}/station/{station_id}/period/latest-months/data.json"
+        )
+        return json_to_dataframe(json_data["value"])
+
+    def get_latest_hour(self, parameter: Parameter, station_id: int) -> pd.DataFrame:
+        """Get data from latest hour for specified parameter and station.
+        """
+        json_data = self._query_csv(
+            service=f"parameter/{parameter.value}/station/{station_id}/period/latest-hour/data.json"
+        )
+        return json_to_dataframe(json_data["value"])
