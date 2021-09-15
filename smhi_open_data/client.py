@@ -6,8 +6,13 @@ from tenacity import retry, stop_after_attempt, wait_random
 
 import pandas as pd
 
-from smhi_open_data.enums import Parameter
-from smhi_open_data.utils import try_parse_float, distance, json_to_dataframe
+from smhi_open_data.smhi_open_data.enums import Parameter
+from smhi_open_data.smhi_open_data.utils import (
+    try_parse_float,
+    distance,
+    json_to_dataframe,
+    format_archived_dataframe,
+)
 
 
 class SMHIOpenDataClient:
@@ -50,7 +55,10 @@ class SMHIOpenDataClient:
     def _query_csv(self, service: str):
         # download the csv data
         df = pd.read_csv(
-            filepath_or_buffer=f"{self.base_url}/{service}", skiprows=9, delimiter=";"
+            filepath_or_buffer=f"{self.base_url}/{service}",
+            skiprows=9,
+            delimiter=";",
+            low_memory=False,
         )
         return df
 
@@ -201,29 +209,96 @@ class SMHIOpenDataClient:
         df = self._query_csv(
             service=f"parameter/{parameter.value}/station/{station_id}/period/corrected-archive/data.csv"
         )
-        df["date"] = pd.to_datetime(df.Datum, utc=True) + pd.to_timedelta(
-            df["Tid (UTC)"]
-        )
-        df = df.iloc[:, [-1, 2, 3]]
-        # rename the columns
-        df.columns = ["date", "value", "quality"]
-
-        # convert value to float64
-        df["value"] = df.value.astype(float)
+        df = format_archived_dataframe(df, parameter)
+        df["station_id"] = station_id
         return df
 
     def get_latest_months(self, parameter: Parameter, station_id: int) -> pd.DataFrame:
         """Get data from latest months for specified parameter and station.
         """
-        json_data = self._query_csv(
+        json_data = self._query(
             service=f"parameter/{parameter.value}/station/{station_id}/period/latest-months/data.json"
         )
-        return json_to_dataframe(json_data["value"])
+        df = json_to_dataframe(json_data["value"], parameter)
+        df.columns = ["date", parameter.name, "quality"]
+        df["station_id"] = station_id
+        return df
 
-    def get_latest_hour(self, parameter: Parameter, station_id: int) -> pd.DataFrame:
+    def get_latest_hour(
+        self, parameter: Union[Parameter, List[Parameter]], station_id: int
+    ) -> pd.DataFrame:
         """Get data from latest hour for specified parameter and station.
         """
-        json_data = self._query_csv(
+        json_data = self._query(
             service=f"parameter/{parameter.value}/station/{station_id}/period/latest-hour/data.json"
         )
-        return json_to_dataframe(json_data["value"])
+        df = json_to_dataframe(json_data["value"], parameter)
+        df.columns = ["date", parameter.name, "quality"]
+        df["station_id"] = station_id
+        return df
+
+    def get_latest_months_multiple_params(
+        self, parameters: List[Parameter], station_id: int
+    ):
+
+        for i, parameter in enumerate(parameters):
+            json_data = self._query(
+                service=f"parameter/{parameter.value}/station/{station_id}/period/latest-months/data.json"
+            )
+            df_single_param = json_to_dataframe(json_data["value"], parameter)
+            df_single_param["station_id"] = station_id
+            df_single_param.columns = [
+                "date",
+                parameter.name,
+                "quality_{}".format(parameter.name),
+                "station_id",
+            ]
+            df_single_param.index = df_single_param.date
+
+            if i == 0:
+                df = df_single_param.copy()
+            else:
+                df = pd.concat(
+                    [
+                        df,
+                        df_single_param[
+                            [parameter.name, "quality_{}".format(parameter.name)]
+                        ],
+                    ],
+                    join="inner",
+                    axis=1,
+                )
+        return df
+
+    def get_corrected_data_multiple_params(
+        self, parameters: List[Parameter], station_id: int
+    ):
+
+        for i, parameter in enumerate(parameters):
+            df_single_param = self._query_csv(
+                service=f"parameter/{parameter.value}/station/{station_id}/period/corrected-archive/data.csv"
+            )
+            df_single_param = format_archived_dataframe(df_single_param, parameter)
+            df_single_param["station_id"] = station_id
+            df_single_param.columns = [
+                "date",
+                parameter.name,
+                "quality_{}".format(parameter.name),
+                "station_id",
+            ]
+            df_single_param.index = df_single_param.date
+
+            if i == 0:
+                df = df_single_param.copy()
+            else:
+                df = pd.concat(
+                    [
+                        df,
+                        df_single_param[
+                            [parameter.name, "quality_{}".format(parameter.name)]
+                        ],
+                    ],
+                    join="inner",
+                    axis=1,
+                )
+        return df
