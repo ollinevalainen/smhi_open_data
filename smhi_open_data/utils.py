@@ -1,27 +1,19 @@
+import logging
 import pandas as pd
-from datetime import datetime
 from math import cos, asin, sqrt, pi
 from typing import Union
 
-from smhi_open_data.smhi_open_data.enums import Parameter
+from smhi_open_data.enums import Parameter
 
+logger = logging.getLogger(__name__)
 # Constants
 CONST_EARTH_RADIUS = 6371  # km
 CONST_EARTH_DIAMETER = 12742  # km
-EPOCH = datetime.utcfromtimestamp(0)
 
 # constants for archived parameters
 # depending on parameter the archived csv from SMHI has different data columns
 ARCHIVED_PARAMETER_GROUP1 = [Parameter.TemperaturePast1h.name, Parameter.Humidity.name]
 ARCHIVED_PARAMETER_GROUP2 = [Parameter.PrecipPast24hAt06.name]
-
-
-def date2microseconds(date: datetime) -> int:
-    return int((date - EPOCH).total_seconds() * 1000000.0)
-
-
-def microseconds2date(microseconds: float) -> datetime:
-    return datetime.utcfromtimestamp(microseconds / 1000000)
 
 
 def try_parse_float(x: Union[str, float, int]) -> Union[float, str]:
@@ -55,8 +47,7 @@ def distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 
 def json_to_dataframe(json_data: dict, parameter: Parameter) -> pd.DataFrame:
-    """Turn JSON data to pandas DataFrameß
-    """
+    """Turn JSON data to pandas DataFrameß"""
     # create a data frame from the JSON data
     df = pd.DataFrame(json_data)
     if parameter.name in ARCHIVED_PARAMETER_GROUP2:
@@ -74,8 +65,7 @@ def json_to_dataframe(json_data: dict, parameter: Parameter) -> pd.DataFrame:
 
 
 def format_archived_dataframe(df: pd.DataFrame, parameter: Parameter) -> pd.DataFrame:
-    """Format SMHI archived data to unified DataFrame format.
-    """
+    """Format SMHI archived data to unified DataFrame format."""
 
     if parameter.name in ARCHIVED_PARAMETER_GROUP1:
         df["date"] = pd.to_datetime(df.Datum, utc=True) + pd.to_timedelta(
@@ -98,11 +88,12 @@ def format_archived_dataframe(df: pd.DataFrame, parameter: Parameter) -> pd.Data
         df[parameter.name] = df[parameter.name].astype(float)
 
     else:
-        raise NotImplementedError(
-            """format_archived_dataframe function not yet implemented or tested with parameter {}""".format(
-                parameter.name
-            )
+        err_msg = (
+            "format_archived_dataframe function not yet implemented or tested "
+            "with parameter {}".format(parameter.name)
         )
+        logger.error(err_msg)
+        raise NotImplementedError(err_msg)
 
     return df
 
@@ -110,7 +101,8 @@ def format_archived_dataframe(df: pd.DataFrame, parameter: Parameter) -> pd.Data
 def combine_archived_and_latest_months(
     corrected_df: pd.DataFrame, latest_months_df: pd.DataFrame, combine_since: str
 ) -> pd.DataFrame:
-    """Combine archived and latest months data to a single dataframe. Latest months' data is appended after latest archived observation.
+    """Combine archived and latest months data to a single dataframe. Latest months'
+    data is appended after latest archived observation.
     """
 
     combined_df = (

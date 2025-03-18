@@ -1,4 +1,4 @@
-import json
+import logging
 from typing import List, Dict, Any, Union
 
 import requests
@@ -6,13 +6,15 @@ from tenacity import retry, stop_after_attempt, wait_random
 
 import pandas as pd
 
-from smhi_open_data.smhi_open_data.enums import Parameter
-from smhi_open_data.smhi_open_data.utils import (
+from smhi_open_data.enums import Parameter
+from smhi_open_data.utils import (
     try_parse_float,
     distance,
     json_to_dataframe,
     format_archived_dataframe,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class SMHIOpenDataClient:
@@ -119,14 +121,18 @@ class SMHIOpenDataClient:
         res = self._query(service=f"parameter/{parameter.value}/station-set/all.json")
         periods = res["period"]
         if periods is None or len(periods) == 0:
-            raise NotImplementedError(f"Not implemented for parameter: {parameter}")
+            err_msg = f"No periods found for parameter: {parameter}"
+            logger.error(err_msg)
+            raise NotImplementedError(err_msg)
 
         # Get period key
         period_key = periods[0]["key"]
         if period_key != "latest-hour":
-            raise NotImplementedError(
+            err_msg = (
                 f"Not implemented for parameter: {parameter} and period: {period_key}"
             )
+            logger.error(err_msg)
+            raise NotImplementedError(err_msg)
 
         # Get period data
         res = self._query(
@@ -203,8 +209,7 @@ class SMHIOpenDataClient:
         return closest_station
 
     def get_corrected_data(self, parameter: Parameter, station_id: int) -> pd.DataFrame:
-        """Get archived corrected data for specified parameter and station.
-        """
+        """Get archived corrected data for specified parameter and station."""
 
         df = self._query_csv(
             service=f"parameter/{parameter.value}/station/{station_id}/period/corrected-archive/data.csv"
@@ -214,8 +219,7 @@ class SMHIOpenDataClient:
         return df
 
     def get_latest_months(self, parameter: Parameter, station_id: int) -> pd.DataFrame:
-        """Get data from latest months for specified parameter and station.
-        """
+        """Get data from latest months for specified parameter and station."""
         json_data = self._query(
             service=f"parameter/{parameter.value}/station/{station_id}/period/latest-months/data.json"
         )
@@ -227,8 +231,7 @@ class SMHIOpenDataClient:
     def get_latest_hour(
         self, parameter: Union[Parameter, List[Parameter]], station_id: int
     ) -> pd.DataFrame:
-        """Get data from latest hour for specified parameter and station.
-        """
+        """Get data from latest hour for specified parameter and station."""
         json_data = self._query(
             service=f"parameter/{parameter.value}/station/{station_id}/period/latest-hour/data.json"
         )
