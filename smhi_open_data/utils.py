@@ -12,7 +12,11 @@ CONST_EARTH_DIAMETER = 12742  # km
 
 # constants for archived parameters
 # depending on parameter the archived csv from SMHI has different data columns
-ARCHIVED_PARAMETER_GROUP1 = [Parameter.TemperaturePast1h.name, Parameter.Humidity.name]
+ARCHIVED_PARAMETER_GROUP1 = [Parameter.TemperaturePast1h.name,
+                              Parameter.Humidity.name,
+                                Parameter.WindSpeed.name,
+                                  Parameter.WindDirection.name,
+                                    Parameter.Pressure.name]
 ARCHIVED_PARAMETER_GROUP2 = [Parameter.PrecipPast24hAt06.name]
 
 
@@ -105,9 +109,9 @@ def combine_archived_and_latest_months(
     data is appended after latest archived observation.
     """
 
-    combined_df = pd.concat(
+    combined_df = pd.concat([
         corrected_df[corrected_df.date >= combine_since],
         latest_months_df[latest_months_df.date > corrected_df.date.max()]
-    )
+    ], ignore_index=True)
 
     return combined_df
