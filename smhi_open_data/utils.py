@@ -105,10 +105,9 @@ def combine_archived_and_latest_months(
     data is appended after latest archived observation.
     """
 
-    combined_df = (
-        corrected_df[corrected_df.date >= combine_since]
-        .append(latest_months_df[latest_months_df.date > corrected_df.date.max()])
-        .reset_index(drop=True)
+    combined_df = pd.concat(
+        corrected_df[corrected_df.date >= combine_since],
+        latest_months_df[latest_months_df.date > corrected_df.date.max()]
     )
 
     return combined_df
